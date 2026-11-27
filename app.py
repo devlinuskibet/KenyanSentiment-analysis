@@ -166,3 +166,80 @@ def render_robustness_chart(robustness_df: pd.DataFrame) -> plt.Figure:
     return fig
 
 
+def render_sidebar(models: SentimentModels | None, load_error: str | None) -> tuple[float, float, bool]:
+    """
+    Render model status, version checks, and routing control widgets in the sidebar.
+
+    Args:
+        models: Loaded SentimentModels or None if loading failed.
+        load_error: Error string if model loading failed.
+
+    Returns:
+        Tuple of (low_conf, guard_thr, context_verified).
+    """
+    st.sidebar.header("Model & Routing Controls")
+
+    # Show model loading status, device, and library version comparison.
+    if load_error is not None or models is None:
+        st.sidebar.error(f"Model status: Error\n\n{load_error}")
+    else:
+        st.sidebar.success("Model status: Loaded")
+        device_label = "GPU (CUDA)" if models.device.type == "cuda" else "CPU"
+        st.sidebar.write(f"Device: `{device_label}`")
+
+        # Display installed vs training versions from versions.json.
+        v_info = models.versions_info
+        expected = v_info["expected"]
+        installed = v_info["installed"]
+
+        version_rows = [
+            {
+                "library": lib,
+                "installed": installed.get(lib, ""),
+                "versions.json": str(expected.get(lib, "")),
+            }
+            for lib in ("scikit-learn", "transformers", "torch")
+        ]
+        st.sidebar.dataframe(
+            pd.DataFrame(version_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+        # Warn visibly when scikit-learn differs because joblib pickles are version-sensitive.
+        if v_info["sklearn_mismatch"]:
+            st.sidebar.warning(
+                f"scikit-learn version mismatch: installed {installed['scikit-learn']} "
+                f"vs versions.json {expected.get('scikit-learn')}. "
+                "Joblib pipelines can break across versions."
+            )
+        if v_info["transformers_mismatch"] or v_info["torch_mismatch"]:
+            st.sidebar.info(
+                "Note: transformers or torch runtime version differs from versions.json."
+            )
+
+    st.sidebar.divider()
+
+    # Routing threshold sliders and context verification toggle.
+    low_conf = st.sidebar.slider(
+        "low_conf (transformer-only review threshold)",
+        min_value=0.50,
+        max_value=0.99,
+        value=0.90,
+        step=0.01,
+    )
+    guard_thr = st.sidebar.slider(
+        "guard_thr (disagreement guard threshold)",
+        min_value=0.00,
+        max_value=0.99,
+        value=0.90,
+        step=0.01,
+    )
+    context_verified = st.sidebar.checkbox(
+        "Treat supplied context as verified",
+        value=True,
+    )
+
+    return low_conf, guard_thr, context_verified
+
+
