@@ -56,3 +56,40 @@ def validate_predictions_and_labels(
         raise ValueError(f"Unknown predicted labels found: {invalid_pred}")
 
 
+def normalize_and_filter_labels(
+    df: pd.DataFrame,
+    label_col: str,
+    valid_labels: Sequence[str] = LABELS,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Normalize expected labels with strip+lower and separate invalid-label rows.
+
+    Args:
+        df: Input dataset DataFrame.
+        label_col: Name of the expected-label column.
+        valid_labels: Allowed label names.
+
+    Returns:
+        Tuple of (valid_df, invalid_df), each preserving original row indices.
+    """
+    # Work on a copy to avoid mutating the caller's DataFrame unexpectedly.
+    working = df.copy()
+    allowed = set(valid_labels)
+
+    # Convert NaN/None to "" before stripping and lowercasing.
+    normalized = (
+        working[label_col]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+    working["expected_normalized"] = normalized
+
+    # Partition rows into valid and invalid label subsets so invalid rows can be reported.
+    is_valid = normalized.isin(allowed)
+    valid_df = working.loc[is_valid].copy()
+    invalid_df = working.loc[~is_valid].copy()
+    return valid_df, invalid_df
+
+
