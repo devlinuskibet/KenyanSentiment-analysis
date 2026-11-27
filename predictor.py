@@ -141,3 +141,62 @@ def load_versions_info(versions_path: Path = VERSIONS_PATH) -> dict[str, Any]:
     }
 
 
+def load_models(
+    transformer_dir: Path = TRANSFORMER_DIR,
+    linear_model_path: Path = LINEAR_MODEL_PATH,
+    versions_path: Path = VERSIONS_PATH,
+) -> SentimentModels:
+    """
+    Load the local transformer, tokenizer, and LinearSVC pipeline without network access.
+
+    Args:
+        transformer_dir: Directory containing the saved Hugging Face model and tokenizer.
+        linear_model_path: Path to the saved scikit-learn joblib pipeline.
+        versions_path: Path to versions.json.
+
+    Returns:
+        Populated SentimentModels dataclass.
+
+    Raises:
+        FileNotFoundError: If any required model directory or file is missing.
+    """
+    # Verify all required artifacts are present on disk before attempting to load.
+    if not transformer_dir.exists():
+        raise FileNotFoundError(f"Missing transformer directory: {transformer_dir}")
+    if not linear_model_path.exists():
+        raise FileNotFoundError(f"Missing linear model file: {linear_model_path}")
+
+    # Load version comparison metadata first.
+    versions_info = load_versions_info(versions_path)
+
+    # Select GPU if CUDA is available, otherwise fall back to CPU.
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Load tokenizer and sequence classification model strictly from local files.
+    tokenizer = AutoTokenizer.from_pretrained(
+        str(transformer_dir),
+        local_files_only=True,
+    )
+    transformer_model = AutoModelForSequenceClassification.from_pretrained(
+        str(transformer_dir),
+        local_files_only=True,
+    )
+
+    # Move transformer to target device and switch to evaluation mode.
+    transformer_model.to(device)
+    transformer_model.eval()
+
+    # Load the scikit-learn TF-IDF + LinearSVC pipeline, capturing any version warnings.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        linear_model = joblib.load(linear_model_path)
+
+    return SentimentModels(
+        tokenizer=tokenizer,
+        transformer_model=transformer_model,
+        linear_model=linear_model,
+        device=device,
+        versions_info=versions_info,
+    )
+
+
