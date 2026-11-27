@@ -93,3 +93,69 @@ def normalize_and_filter_labels(
     return valid_df, invalid_df
 
 
+def compute_classification_metrics(
+    y_true: Sequence[str],
+    y_pred: Sequence[str],
+    labels: Sequence[str] = LABELS,
+) -> dict[str, Any]:
+    """
+    Compute accuracy, macro-F1, weighted-F1, per-class metrics, and row-normalized CM.
+
+    Args:
+        y_true: Ground-truth labels.
+        y_pred: Predicted labels.
+        labels: Ordered label list.
+
+    Returns:
+        Dictionary containing scalar metrics, per_class_df, and confusion_matrix_pct.
+    """
+    # Run self-check before computing any scikit-learn metrics.
+    validate_predictions_and_labels(y_true, y_pred, labels)
+
+    y_true_list = list(y_true)
+    y_pred_list = list(y_pred)
+    label_list = list(labels)
+
+    # Compute overall accuracy and F1 aggregates.
+    acc = float(accuracy_score(y_true_list, y_pred_list))
+    macro_f1 = float(f1_score(y_true_list, y_pred_list, labels=label_list, average="macro", zero_division=0))
+    weighted_f1 = float(f1_score(y_true_list, y_pred_list, labels=label_list, average="weighted", zero_division=0))
+
+    # Compute per-class precision, recall, F1, and support in fixed label order.
+    prec, rec, f1, supp = precision_recall_fscore_support(
+        y_true_list,
+        y_pred_list,
+        labels=label_list,
+        zero_division=0,
+    )
+    per_class_df = pd.DataFrame(
+        {
+            "label": label_list,
+            "precision": prec,
+            "recall": rec,
+            "f1": f1,
+            "support": supp.astype(int),
+        }
+    )
+
+    # Compute raw counts and row-normalize to percentages for the heatmap.
+    cm_counts = confusion_matrix(y_true_list, y_pred_list, labels=label_list)
+    row_sums = cm_counts.sum(axis=1, keepdims=True)
+    cm_pct = np.divide(
+        cm_counts.astype(float) * 100.0,
+        row_sums,
+        out=np.zeros_like(cm_counts, dtype=float),
+        where=row_sums != 0,
+    )
+    cm_pct_df = pd.DataFrame(cm_pct, index=label_list, columns=label_list)
+
+    return {
+        "accuracy": acc,
+        "macro_f1": macro_f1,
+        "weighted_f1": weighted_f1,
+        "per_class_df": per_class_df,
+        "confusion_matrix_pct": cm_pct_df,
+        "confusion_matrix_counts": pd.DataFrame(cm_counts, index=label_list, columns=label_list),
+    }
+
+
