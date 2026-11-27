@@ -40,3 +40,60 @@ LINEAR_MODEL_PATH: Path = MODEL_DIR / "linearsvc_context_dropout.joblib"
 VERSIONS_PATH: Path = MODEL_DIR / "versions.json"
 
 
+@dataclass
+class SentimentModels:
+    """Container for loaded sentiment models, tokenizer, device, and version metadata."""
+
+    tokenizer: Any
+    transformer_model: Any
+    linear_model: Any
+    device: torch.device
+    versions_info: dict[str, Any]
+
+
+def clean_text(value: Any) -> str:
+    """
+    Convert a text cell value to a clean string, mapping None/NaN to empty string.
+
+    Args:
+        value: Raw value from UI input, CSV, or DataFrame cell.
+
+    Returns:
+        A string representation, or "" if the input is None or NaN.
+    """
+    # Treat None and pandas/numpy NaN values as empty strings.
+    if value is None or pd.isna(value):
+        return ""
+    # Convert non-string scalars safely to str.
+    return str(value)
+
+
+def has_non_empty_context(context: Any) -> bool:
+    """
+    Check whether a context value contains non-whitespace characters.
+
+    Args:
+        context: Raw context string or NaN/None value.
+
+    Returns:
+        True if context is non-empty after stripping whitespace, else False.
+    """
+    # Normalize first so NaN/None never raises an AttributeError on .strip().
+    return bool(clean_text(context).strip())
+
+
+def format_linear_input(inquiry: Any, context: Any) -> str:
+    """
+    Format inquiry and context using the exact separator expected by LinearSVC.
+
+    Args:
+        inquiry: Customer inquiry text.
+        context: Conversation context text.
+
+    Returns:
+        Formatted string "{inquiry} [SEP] {context}".
+    """
+    # LinearSVC was trained with the literal " [SEP] " delimiter.
+    return f"{clean_text(inquiry)} [SEP] {clean_text(context)}"
+
+
