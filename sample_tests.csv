@@ -1,0 +1,13 @@
+customer_inquiry,conversation_context,sentiment,language_variant,contains_sarcasm,contains_context_dependency
+"My account was debited twice and nobody has replied to my email since yesterday.","",negative,English,False,False
+"Thank you so much, the payment went through smoothly and my order is confirmed.","",positive,English,False,False
+"Please share the working hours for your Nairobi branch.","",neutral,English,False,False
+"The delivery was fast, although the packaging arrived slightly torn.","",mixed,English,False,False
+"Asante sana, nimepata pesa yangu baada ya siku tatu!","",positive,Kiswahili,False,False
+"Hii app yenu iko down kila saa, mnaboo sana.","",negative,Sheng,False,False
+"Nimepata refund yangu finally, lakini customer care yenu ilikuwa slow sana.","Customer waited three days for a delayed refund.",mixed,Code-switched,False,True
+"Oh great, another 45-minute wait just to be told my ticket was closed.","",negative,English,True,False
+"Sawa, nimeelewa vizuri sana.","Customer had one earlier chat about a delayed refund with no resolution.",negative,Kiswahili,False,True
+"Sawa, nimeelewa vizuri sana.","Agent resolved the billing issue quickly and confirmed the refund.",positive,Kiswahili,False,True
+"Nilitaka tu kujua balance yangu ya account ni ngapi.","No prior interaction.",neutral,Code-switched,False,False
+"Mpesa reversal imefanyika poa, though bado sijapata SMS confirmation.","Customer waited two hours for M-Pesa reversal.",mixed,Sheng,False,True
