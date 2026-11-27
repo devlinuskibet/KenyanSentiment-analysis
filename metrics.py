@@ -210,3 +210,78 @@ def compute_routing_metrics(df_eval: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def compute_comparison_table(
+    df_eval: pd.DataFrame,
+    labels: Sequence[str] = LABELS,
+) -> pd.DataFrame:
+    """
+    Build a side-by-side comparison of transformer alone, linear alone, and routed system.
+
+    Args:
+        df_eval: DataFrame with expected, t_label, linear_label, predicted, and has_context.
+        labels: Ordered label list.
+
+    Returns:
+        DataFrame with columns: system, accuracy, macro_f1, n.
+    """
+    rows: list[dict[str, Any]] = []
+
+    # 1. Transformer alone across all valid rows.
+    t_metrics = compute_classification_metrics(
+        df_eval["expected"].tolist(),
+        df_eval["t_label"].tolist(),
+        labels=labels,
+    )
+    rows.append(
+        {
+            "system": "Transformer alone (all rows)",
+            "accuracy": t_metrics["accuracy"],
+            "macro_f1": t_metrics["macro_f1"],
+            "n": len(df_eval),
+        }
+    )
+
+    # 2. Linear alone evaluated only on rows that supplied non-empty context.
+    ctx_df = df_eval.loc[df_eval["has_context"].astype(bool)]
+    if len(ctx_df) > 0:
+        lin_metrics = compute_classification_metrics(
+            ctx_df["expected"].tolist(),
+            ctx_df["linear_label"].tolist(),
+            labels=labels,
+        )
+        rows.append(
+            {
+                "system": "Linear alone (rows with context)",
+                "accuracy": lin_metrics["accuracy"],
+                "macro_f1": lin_metrics["macro_f1"],
+                "n": len(ctx_df),
+            }
+        )
+    else:
+        rows.append(
+            {
+                "system": "Linear alone (rows with context)",
+                "accuracy": np.nan,
+                "macro_f1": np.nan,
+                "n": 0,
+            }
+        )
+
+    # 3. Routed system across all valid rows.
+    r_metrics = compute_classification_metrics(
+        df_eval["expected"].tolist(),
+        df_eval["predicted"].tolist(),
+        labels=labels,
+    )
+    rows.append(
+        {
+            "system": "Routed system (all rows)",
+            "accuracy": r_metrics["accuracy"],
+            "macro_f1": r_metrics["macro_f1"],
+            "n": len(df_eval),
+        }
+    )
+
+    return pd.DataFrame(rows)
+
+
