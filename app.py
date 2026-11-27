@@ -828,3 +828,131 @@ def render_robustness_tab() -> None:
     )
 
 
+def render_model_info_tab(
+    models: SentimentModels,
+    low_conf: float,
+    guard_thr: float,
+    context_verified: bool,
+) -> None:
+    """
+    Render Tab 4 with runtime paths, configuration, and static reference benchmarks.
+
+    Args:
+        models: Loaded SentimentModels container.
+        low_conf: Current low_conf threshold.
+        guard_thr: Current guard_thr threshold.
+        context_verified: Current context_verified flag.
+    """
+    st.subheader("Model Information")
+
+    info_rows = [
+        {"setting": "Transformer path", "value": str(TRANSFORMER_DIR)},
+        {"setting": "Linear model path", "value": str(LINEAR_MODEL_PATH)},
+        {"setting": "Versions file path", "value": str(VERSIONS_PATH)},
+        {"setting": "Runtime device", "value": str(models.device)},
+        {"setting": "Label order", "value": ", ".join(LABELS)},
+        {"setting": "low_conf threshold", "value": f"{low_conf:.2f}"},
+        {"setting": "guard_thr threshold", "value": f"{guard_thr:.2f}"},
+        {"setting": "Treat context as verified", "value": str(context_verified)},
+    ]
+    st.dataframe(pd.DataFrame(info_rows), hide_index=True, use_container_width=True)
+
+    st.markdown("**Original Dataset Evaluation Reference (Informational Only)**")
+    ref_rows = [
+        {
+            "evaluation": "Transformer (inquiry only) - overall test",
+            "metric": "macro-F1",
+            "value": "0.936",
+        },
+        {
+            "evaluation": "Transformer (inquiry only) - easy rows",
+            "metric": "macro-F1",
+            "value": "0.9995",
+        },
+        {
+            "evaluation": "Transformer (inquiry only) - context-dependent rows",
+            "metric": "macro-F1",
+            "value": "0.605",
+        },
+        {
+            "evaluation": "Linear model with true context - overall test",
+            "metric": "macro-F1",
+            "value": "1.0",
+        },
+        {
+            "evaluation": "Linear model on context-dependent rows (true context)",
+            "metric": "macro-F1",
+            "value": "1.0",
+        },
+        {
+            "evaluation": "Linear model on context-dependent rows (neutral context)",
+            "metric": "macro-F1",
+            "value": "0.405",
+        },
+        {
+            "evaluation": "Linear model on context-dependent rows (shuffled context)",
+            "metric": "macro-F1",
+            "value": "0.278",
+        },
+    ]
+    st.dataframe(pd.DataFrame(ref_rows), hide_index=True, use_container_width=True)
+
+    st.markdown("**Disagreement Guard Reference on Original Test Split (Informational Only)**")
+    guard_ref_rows = [
+        {"threshold": "0.0", "errors_caught_shuffled": "423/519", "needless_flags_true": "288/4500"},
+        {"threshold": "0.5", "errors_caught_shuffled": "386/519", "needless_flags_true": "254/4500"},
+        {"threshold": "0.7", "errors_caught_shuffled": "235/519", "needless_flags_true": "124/4500"},
+        {"threshold": "0.9", "errors_caught_shuffled": "119/519", "needless_flags_true": "26/4500"},
+    ]
+    st.dataframe(pd.DataFrame(guard_ref_rows), hide_index=True, use_container_width=True)
+
+    st.caption(
+        "Caveat: the original dataset is templated, so these figures are not a prediction of real-world accuracy."
+    )
+
+
+def main() -> None:
+    """Main Streamlit application entry point."""
+    st.title("Sentiment Model Evaluation Bench")
+    st.caption(
+        "Interactive evaluation of inquiry-only XLM-RoBERTa and context-aware LinearSVC models."
+    )
+
+    # Attempt to load cached models and capture any missing-file or load errors cleanly.
+    models: SentimentModels | None = None
+    load_error: str | None = None
+    try:
+        models = get_cached_models()
+    except Exception as exc:
+        load_error = str(exc)
+
+    low_conf, guard_thr, context_verified = render_sidebar(models, load_error)
+
+    if load_error is not None or models is None:
+        st.error(
+            f"Unable to start evaluation because model loading failed: {load_error}"
+        )
+        return
+
+    # Four application tabs.
+    tab1, tab2, tab3, tab4 = st.tabs(
+        [
+            "Single message",
+            "Batch evaluation",
+            "Context robustness test",
+            "Model information",
+        ]
+    )
+
+    with tab1:
+        render_single_message_tab(models, low_conf, guard_thr, context_verified)
+    with tab2:
+        render_batch_tab(models, low_conf, guard_thr, context_verified)
+    with tab3:
+        render_robustness_tab()
+    with tab4:
+        render_model_info_tab(models, low_conf, guard_thr, context_verified)
+
+
+if __name__ == "__main__":
+    main()
