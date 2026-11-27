@@ -3,9 +3,21 @@ Streamlit UI for interactive testing and error analysis of two sentiment models.
 
 All model loading, inference, and routing live in predictor.py; all metric
 computations live in metrics.py.
+
+On Hugging Face Spaces the sentiment_models/ directory is not bundled in the
+repo. This module automatically downloads it from the Hugging Face Hub before
+any model loading occurs so the app works identically on Spaces and locally.
 """
 
+from pathlib import Path
 from typing import Any
+
+# Download sentiment_models/ from Hugging Face Hub if not already present locally.
+# This is a no-op after the first run because snapshot_download caches by revision.
+_MODELS_DIR = Path(__file__).resolve().parent / "sentiment_models"
+if not _MODELS_DIR.exists():
+    from download_models import download_models as _download_models
+    _download_models()
 
 import matplotlib.pyplot as plt
 import numpy as np
