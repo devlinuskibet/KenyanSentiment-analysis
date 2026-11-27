@@ -243,3 +243,149 @@ def render_sidebar(models: SentimentModels | None, load_error: str | None) -> tu
     return low_conf, guard_thr, context_verified
 
 
+def render_single_message_tab(
+    models: SentimentModels,
+    low_conf: float,
+    guard_thr: float,
+    context_verified: bool,
+) -> None:
+    """
+    Render Tab 1 for single-message inference and three-context comparison.
+
+    Args:
+        models: Loaded SentimentModels container.
+        low_conf: Low-confidence threshold.
+        guard_thr: Disagreement-guard threshold.
+        context_verified: Whether supplied context is treated as verified.
+    """
+    st.subheader("Single Message Evaluation")
+    st.caption(
+        "Inspect routed predictions, model agreement, class probabilities, and context sensitivity."
+    )
+
+    # Input widgets for inquiry, optional context, and optional expected label.
+    inquiry_input = st.text_area(
+        "Customer inquiry",
+        height=90,
+        placeholder="Enter customer message...",
+        key="single_inquiry_input",
+    )
+    context_input = st.text_area(
+        "Conversation context (optional)",
+        height=75,
+        placeholder="Optional prior interaction summary...",
+        key="single_context_input",
+    )
+    expected_choice = st.selectbox(
+        "Expected label (optional)",
+        options=["unknown"] + LABELS,
+        index=0,
+        key="single_expected_choice",
+    )
+
+    # Run both models once on button click and cache raw outputs in session_state.
+    if st.button("Predict", type="primary", key="single_predict_btn"):
+        cleaned_inquiry = clean_text(inquiry_input)
+        cleaned_context = clean_text(context_input)
+
+        if not cleaned_inquiry.strip():
+            st.error("Empty input: please enter a non-empty customer inquiry.")
+            st.session_state.pop("single_cache", None)
+        else:
+            # Compute transformer probabilities once for the inquiry.
+            probs, t_labels, t_confs = predict_transformer_batch([cleaned_inquiry], models)
+            # Compute linear predictions under all three context conditions for comparison.
+            lin_preds = predict_linear_batch(
+                [cleaned_inquiry, cleaned_inquiry, cleaned_inquiry],
+                [cleaned_context, NEUTRAL_CONTEXT, ""],
+                models,
+            )
+            st.session_state["single_cache"] = {
+                "inquiry": cleaned_inquiry,
+                "context": cleaned_context,
+                "expected": expected_choice,
+                "probs": probs[0],
+                "t_label": t_labels[0],
+                "t_conf": t_confs[0],
+                "linear_given": lin_preds[0],
+                "linear_neutral": lin_preds[1],
+                "linear_none": lin_preds[2],
+            }
+
+    # Re-apply routing dynamically from cached raw outputs so sidebar changes update instantly.
+    cache = st.session_state.get("single_cache")
+    if cache is None:
+        return
+
+    routed = apply_routing_row(
+        t_label=cache["t_label"],
+        t_conf=cache["t_conf"],
+        linear_label=cache["linear_given"],
+        context=cache["context"],
+        context_verified=context_verified,
+        low_conf=low_conf,
+        guard_thr=guard_thr,
+    )
+
+    # Top summary metrics.
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Routed label", routed["label"])
+    col2.metric("Model used", routed["model_used"])
+    review_text = f"Yes ({routed['reason']})" if routed["needs_review"] else "No"
+    col3.metric("Needs review", review_text)
+    col4.metric("Transformer", f"{cache['t_label']} ({cache['t_conf']:.3f})")
+
+    # Show linear prediction and agreement indicator when non-empty context was supplied.
+    if has_non_empty_context(cache["context"]):
+        agrees = cache["t_label"] == cache["linear_given"]
+        agreement_text = "Models agree" if agrees else "Models disagree"
+        st.write(
+            f"**Linear+context prediction:** `{cache['linear_given']}` | "
+            f"**Agreement:** `{agreement_text}`"
+        )
+    else:
+        st.write("**Linear+context prediction:** Not used (no context supplied)")
+
+    # Show expected-label check when an expected label was selected.
+    if cache["expected"] != "unknown":
+        if routed["label"] == cache["expected"]:
+            st.success(f"Correct: routed prediction `{routed['label']}` matches expected `{cache['expected']}`.")
+        else:
+            st.error(
+                f"Incorrect: routed prediction `{routed['label']}` does not match expected `{cache['expected']}`."
+            )
+
+    # Bar chart of the four transformer probabilities.
+    fig = render_transformer_probs_chart(cache["probs"])
+    st.pyplot(fig, use_container_width=False)
+    plt.close(fig)
+
+    # Side-by-side comparison of the same inquiry under three contexts.
+    st.markdown("**Context sensitivity (same inquiry under three contexts)**")
+    ctx_col1, ctx_col2, ctx_col3 = st.columns(3)
+
+    conditions = [
+        (ctx_col1, "As given", cache["context"], cache["linear_given"]),
+        (ctx_col2, "Neutral", NEUTRAL_CONTEXT, cache["linear_neutral"]),
+        (ctx_col3, "None (empty)", "", cache["linear_none"]),
+    ]
+    for target_col, title, ctx_text, lin_pred in conditions:
+        cond_routed = apply_routing_row(
+            t_label=cache["t_label"],
+            t_conf=cache["t_conf"],
+            linear_label=lin_pred,
+            context=ctx_text,
+            context_verified=context_verified,
+            low_conf=low_conf,
+            guard_thr=guard_thr,
+        )
+        with target_col:
+            st.markdown(f"**{title}**")
+            st.caption(ctx_text if ctx_text else "(empty)")
+            st.write(f"Routed: `{cond_routed['label']}`")
+            st.write(f"Path: `{cond_routed['model_used']}`")
+            st.write(f"Linear: `{lin_pred}`")
+            flag_str = f"Yes ({cond_routed['reason']})" if cond_routed["needs_review"] else "No"
+            st.write(f"Review: `{flag_str}`")
+
+
