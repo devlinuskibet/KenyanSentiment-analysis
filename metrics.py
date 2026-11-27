@@ -285,3 +285,59 @@ def compute_comparison_table(
     return pd.DataFrame(rows)
 
 
+def compute_slice_analysis(
+    df_eval: pd.DataFrame,
+    slice_col: str,
+    labels: Sequence[str] = LABELS,
+    min_rows: int = 5,
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """
+    Compute accuracy, macro-F1, and count per category of a slice column.
+
+    Groups with fewer than min_rows rows are skipped and returned separately
+    because small-sample metrics are statistically unreliable.
+
+    Args:
+        df_eval: Evaluated DataFrame containing expected and predicted columns.
+        slice_col: Categorical column name to slice by.
+        labels: Ordered label list.
+        min_rows: Minimum group size required to report metrics.
+
+    Returns:
+        Tuple of (slice_df, skipped_groups).
+    """
+    # Normalize missing slice values to a readable label.
+    series = df_eval[slice_col].fillna("(missing)").astype(str)
+    slice_rows: list[dict[str, Any]] = []
+    skipped_groups: list[dict[str, Any]] = []
+
+    # Iterate deterministically over sorted unique slice values.
+    for value in sorted(series.unique()):
+        subset = df_eval.loc[series == value]
+        count = len(subset)
+        if count < min_rows:
+            skipped_groups.append({"value": value, "n": count})
+            continue
+
+        metrics = compute_classification_metrics(
+            subset["expected"].tolist(),
+            subset["predicted"].tolist(),
+            labels=labels,
+        )
+        slice_rows.append(
+            {
+                slice_col: value,
+                "accuracy": metrics["accuracy"],
+                "macro_f1": metrics["macro_f1"],
+                "n": count,
+            }
+        )
+
+    slice_df = (
+        pd.DataFrame(slice_rows)
+        if slice_rows
+        else pd.DataFrame(columns=[slice_col, "accuracy", "macro_f1", "n"])
+    )
+    return slice_df, skipped_groups
+
+
