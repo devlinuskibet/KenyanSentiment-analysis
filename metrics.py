@@ -159,3 +159,54 @@ def compute_classification_metrics(
     }
 
 
+def compute_routing_metrics(df_eval: pd.DataFrame) -> dict[str, Any]:
+    """
+    Compute routing path counts, review rate, and flagged vs. unflagged accuracy.
+
+    Args:
+        df_eval: DataFrame containing expected, predicted, model_used, and needs_review.
+
+    Returns:
+        Dictionary of routing and review statistics.
+    """
+    # Validate alignment of expected and predicted columns before summarizing.
+    validate_predictions_and_labels(
+        df_eval["expected"].tolist(),
+        df_eval["predicted"].tolist(),
+        LABELS,
+    )
+
+    total_rows = len(df_eval)
+    is_correct = df_eval["expected"] == df_eval["predicted"]
+    is_flagged = df_eval["needs_review"].astype(bool)
+
+    # Count rows routed through each model path.
+    model_counts = df_eval["model_used"].value_counts().to_dict()
+
+    # Compute review counts and rates.
+    review_count = int(is_flagged.sum())
+    review_rate = float(review_count / total_rows) if total_rows > 0 else 0.0
+
+    # Compute accuracy separately on unflagged and flagged subsets.
+    unflagged_mask = ~is_flagged
+    accuracy_not_flagged = (
+        float(is_correct.loc[unflagged_mask].mean()) if unflagged_mask.any() else None
+    )
+    accuracy_flagged = (
+        float(is_correct.loc[is_flagged].mean()) if is_flagged.any() else None
+    )
+
+    # Unflagged errors are silent failures that bypass human review.
+    unflagged_errors_count = int((~is_correct & unflagged_mask).sum())
+
+    return {
+        "total_rows": total_rows,
+        "model_counts": model_counts,
+        "review_count": review_count,
+        "review_rate": review_rate,
+        "accuracy_not_flagged": accuracy_not_flagged,
+        "accuracy_flagged": accuracy_flagged,
+        "unflagged_errors_count": unflagged_errors_count,
+    }
+
+
