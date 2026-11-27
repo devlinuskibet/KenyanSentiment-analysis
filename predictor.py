@@ -301,3 +301,98 @@ def predict_linear_batch(
     return [LABELS[int(pred)] for pred in raw_preds]
 
 
+def apply_routing_row(
+    t_label: str,
+    t_conf: float,
+    linear_label: Optional[str],
+    context: Any,
+    context_verified: bool,
+    low_conf: float = 0.90,
+    guard_thr: float = 0.90,
+) -> dict[str, Any]:
+    """
+    Apply deterministic routing and review-flagging rules for a single row.
+
+    Args:
+        t_label: Transformer predicted label.
+        t_conf: Transformer confidence (max softmax probability).
+        linear_label: LinearSVC predicted label (used when context is active).
+        context: Conversation context string.
+        context_verified: Whether supplied context is treated as verified.
+        low_conf: Confidence threshold below which transformer-only rows are flagged.
+        guard_thr: Confidence threshold at/above which model disagreement is flagged.
+
+    Returns:
+        Dictionary with keys: label, model_used, needs_review, reason.
+    """
+    # Route to linear+context only when context is verified AND non-empty.
+    if context_verified and has_non_empty_context(context):
+        if linear_label is None:
+            raise ValueError("linear_label must be provided when context is verified and non-empty.")
+        label = linear_label
+        model_used = "linear+context"
+        # Disagreement guard flags high-confidence transformer disagreement.
+        needs_review = (t_conf >= guard_thr) and (t_label != label)
+        reason = "models disagree" if needs_review else ""
+    else:
+        # Fall back to inquiry-only transformer when context is absent or unverified.
+        label = t_label
+        model_used = "transformer-inquiry"
+        # Low-confidence guard flags uncertain transformer predictions.
+        needs_review = t_conf < low_conf
+        reason = "low confidence" if needs_review else ""
+
+    return {
+        "label": label,
+        "model_used": model_used,
+        "needs_review": bool(needs_review),
+        "reason": reason,
+    }
+
+
+def apply_routing_batch(
+    t_labels: list[str],
+    t_confs: list[float],
+    linear_labels: list[str],
+    contexts: list[str],
+    context_verified: bool,
+    low_conf: float = 0.90,
+    guard_thr: float = 0.90,
+) -> pd.DataFrame:
+    """
+    Apply routing rules across a cached batch of model predictions without re-running models.
+
+    Args:
+        t_labels: Cached transformer predicted labels.
+        t_confs: Cached transformer confidence scores.
+        linear_labels: Cached linear model predicted labels.
+        contexts: Context strings per row.
+        context_verified: Global checkbox state for treating context as verified.
+        low_conf: Low-confidence threshold for transformer-only path.
+        guard_thr: Disagreement-guard threshold for linear+context path.
+
+    Returns:
+        DataFrame with columns: predicted, model_used, needs_review, review_reason.
+    """
+    # Evaluate each row using cached model outputs so UI sliders update instantaneously.
+    routed_rows = [
+        apply_routing_row(
+            t_label=t_label,
+            t_conf=t_conf,
+            linear_label=linear_label,
+            context=context,
+            context_verified=context_verified,
+            low_conf=low_conf,
+            guard_thr=guard_thr,
+        )
+        for t_label, t_conf, linear_label, context in zip(
+            t_labels, t_confs, linear_labels, contexts
+        )
+    ]
+
+    # Build a DataFrame with predictable column names even when empty.
+    if not routed_rows:
+        return pd.DataFrame(columns=["predicted", "model_used", "needs_review", "review_reason"])
+
+    routed_df = pd.DataFrame(routed_rows)
+    return routed_df.rename(columns={"label": "predicted", "reason": "review_reason"})
