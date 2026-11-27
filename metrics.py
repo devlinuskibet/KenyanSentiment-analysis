@@ -341,3 +341,113 @@ def compute_slice_analysis(
     return slice_df, skipped_groups
 
 
+def compute_context_robustness(
+    y_true: Sequence[str],
+    preds_true_ctx: Sequence[str],
+    preds_neutral_ctx: Sequence[str],
+    preds_shuffled_ctx: Sequence[str],
+    preds_transformer: Sequence[str],
+    labels: Sequence[str] = LABELS,
+) -> pd.DataFrame:
+    """
+    Compare linear model performance under true, neutral, and shuffled contexts.
+
+    Args:
+        y_true: Ground-truth labels for rows that have context.
+        preds_true_ctx: Linear predictions with original context.
+        preds_neutral_ctx: Linear predictions with neutral context.
+        preds_shuffled_ctx: Linear predictions with shuffled context.
+        preds_transformer: Transformer-alone predictions on the same rows.
+        labels: Ordered label list.
+
+    Returns:
+        DataFrame with columns: condition, accuracy, macro_f1, n.
+    """
+    conditions = [
+        ("Linear: true context", preds_true_ctx),
+        ("Linear: neutral context", preds_neutral_ctx),
+        ("Linear: shuffled context", preds_shuffled_ctx),
+        ("Transformer alone (reference)", preds_transformer),
+    ]
+
+    results: list[dict[str, Any]] = []
+    for name, preds in conditions:
+        metrics = compute_classification_metrics(y_true, preds, labels=labels)
+        results.append(
+            {
+                "condition": name,
+                "accuracy": metrics["accuracy"],
+                "macro_f1": metrics["macro_f1"],
+                "n": len(y_true),
+            }
+        )
+
+    return pd.DataFrame(results)
+
+
+def compute_disagreement_guard_sweep(
+    y_true: Sequence[str],
+    linear_true_preds: Sequence[str],
+    linear_shuffled_preds: Sequence[str],
+    t_labels: Sequence[str],
+    t_confs: Sequence[float],
+    thresholds: Sequence[float] = (0.0, 0.5, 0.7, 0.9),
+) -> pd.DataFrame:
+    """
+    Sweep disagreement-guard thresholds across true and shuffled context predictions.
+
+    Args:
+        y_true: Ground-truth labels for rows with context.
+        linear_true_preds: Linear predictions under true context.
+        linear_shuffled_preds: Linear predictions under shuffled context.
+        t_labels: Transformer predicted labels on the same rows.
+        t_confs: Transformer confidence scores on the same rows.
+        thresholds: Guard confidence thresholds to evaluate.
+
+    Returns:
+        DataFrame summarizing wrong predictions caught and correct predictions flagged.
+    """
+    # Validate all prediction sequences against ground truth.
+    validate_predictions_and_labels(y_true, linear_true_preds, LABELS)
+    validate_predictions_and_labels(y_true, linear_shuffled_preds, LABELS)
+    validate_predictions_and_labels(y_true, t_labels, LABELS)
+
+    y_arr = np.asarray(y_true)
+    t_lbl_arr = np.asarray(t_labels)
+    t_conf_arr = np.asarray(t_confs, dtype=float)
+    lin_true_arr = np.asarray(linear_true_preds)
+    lin_shuf_arr = np.asarray(linear_shuffled_preds)
+
+    sweep_rows: list[dict[str, Any]] = []
+    for thr in thresholds:
+        for ctx_name, lin_arr in [
+            ("True context", lin_true_arr),
+            ("Shuffled context", lin_shuf_arr),
+        ]:
+            # Guard fires when transformer confidence >= threshold and labels disagree.
+            flagged = (t_conf_arr >= float(thr)) & (t_lbl_arr != lin_arr)
+            wrong = lin_arr != y_arr
+            correct = ~wrong
+
+            wrong_total = int(wrong.sum())
+            wrong_caught = int((wrong & flagged).sum())
+            wrong_caught_share = float(wrong_caught / wrong_total) if wrong_total > 0 else 0.0
+
+            correct_total = int(correct.sum())
+            needless_flags = int((correct & flagged).sum())
+            needless_flags_share = float(needless_flags / correct_total) if correct_total > 0 else 0.0
+
+            sweep_rows.append(
+                {
+                    "threshold": float(thr),
+                    "context_condition": ctx_name,
+                    "wrong_caught": wrong_caught,
+                    "wrong_total": wrong_total,
+                    "wrong_caught_share": wrong_caught_share,
+                    "needless_flags": needless_flags,
+                    "correct_total": correct_total,
+                    "needless_flags_share": needless_flags_share,
+                }
+            )
+
+    return pd.DataFrame(sweep_rows)
