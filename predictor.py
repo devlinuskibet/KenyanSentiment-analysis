@@ -264,3 +264,40 @@ def predict_transformer_batch(
     return all_probs, t_labels, t_confs
 
 
+def predict_linear_batch(
+    inquiries: list[str],
+    contexts: list[str],
+    models: SentimentModels,
+) -> list[str]:
+    """
+    Run LinearSVC inference on formatted "{inquiry} [SEP] {context}" strings.
+
+    Args:
+        inquiries: List of customer inquiry strings.
+        contexts: List of conversation context strings.
+        models: Loaded SentimentModels container.
+
+    Returns:
+        List of predicted label strings mapped via LABELS.
+
+    Raises:
+        ValueError: If inquiries and contexts have different lengths.
+    """
+    # Ensure inquiry and context lists align one-to-one.
+    if len(inquiries) != len(contexts):
+        raise ValueError("Inquiries and contexts must have the same length.")
+
+    if len(inquiries) == 0:
+        return []
+
+    # Format every row with the exact "[SEP]" separator used in training.
+    combined_inputs = [
+        format_linear_input(inquiry, context)
+        for inquiry, context in zip(inquiries, contexts)
+    ]
+
+    # Predict integer class indices and map to canonical label strings.
+    raw_preds = models.linear_model.predict(combined_inputs)
+    return [LABELS[int(pred)] for pred in raw_preds]
+
+
