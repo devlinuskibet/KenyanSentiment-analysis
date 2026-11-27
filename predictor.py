@@ -97,3 +97,47 @@ def format_linear_input(inquiry: Any, context: Any) -> str:
     return f"{clean_text(inquiry)} [SEP] {clean_text(context)}"
 
 
+def load_versions_info(versions_path: Path = VERSIONS_PATH) -> dict[str, Any]:
+    """
+    Read training library versions from versions.json and compare against runtime.
+
+    Args:
+        versions_path: Path to versions.json.
+
+    Returns:
+        Dictionary containing expected versions, installed versions, and mismatch flags.
+
+    Raises:
+        FileNotFoundError: If versions.json does not exist.
+        ValueError: If versions.json is malformed JSON.
+    """
+    # Ensure the version metadata file exists before reading.
+    if not versions_path.exists():
+        raise FileNotFoundError(f"Missing versions file: {versions_path}")
+
+    # Parse expected versions recorded during training.
+    with versions_path.open("r", encoding="utf-8") as handle:
+        expected = json.load(handle)
+
+    # Collect runtime library versions.
+    installed = {
+        "scikit-learn": sklearn.__version__,
+        "transformers": transformers.__version__,
+        "torch": torch.__version__,
+    }
+
+    # Check exact match for scikit-learn (critical for joblib compatibility)
+    # and informational matches for transformers and torch.
+    expected_sklearn = str(expected.get("scikit-learn", ""))
+    expected_transformers = str(expected.get("transformers", ""))
+    expected_torch = str(expected.get("torch", ""))
+
+    return {
+        "expected": expected,
+        "installed": installed,
+        "sklearn_mismatch": installed["scikit-learn"] != expected_sklearn,
+        "transformers_mismatch": installed["transformers"] != expected_transformers,
+        "torch_mismatch": installed["torch"] != expected_torch,
+    }
+
+
