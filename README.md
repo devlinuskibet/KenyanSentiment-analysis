@@ -36,3 +36,13 @@ CSV files (such as `sample_tests.csv`) and manual table entries use:
 - `sentiment` (required for batch metrics): expected label, one of `negative`, `neutral`, `positive`, `mixed` (normalized with strip + lowercase).
 - Optional categorical columns (e.g., `language_variant`, `contains_sarcasm`, `contains_context_dependency`) for slice analysis.
 
+## How to Read the Results
+
+- **Routing**:
+  - When **Treat supplied context as verified** is enabled and `conversation_context` is non-empty, the system routes to `linear+context` and flags `models disagree` if the transformer confidence is at or above `guard_thr` and disagrees with the linear prediction.
+  - Otherwise, the system routes to `transformer-inquiry` and flags `low confidence` if the transformer confidence is below `low_conf`.
+- **Batch Evaluation**:
+  - Changing `low_conf`, `guard_thr`, or the context-verified checkbox re-applies routing immediately using cached model outputs without re-running inference.
+  - **Unflagged errors** are predictions that were wrong and not flagged for review.
+- **Context Robustness Test**:
+  - Evaluates the linear model on rows with context under true context, neutral context (`"No prior interaction."`), and shuffled context (seed `42`), alongside a disagreement-guard threshold sweep.
