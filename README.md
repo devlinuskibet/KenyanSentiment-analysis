@@ -21,7 +21,10 @@ py -3.11 -m venv .venv
 # 3. Install pinned dependencies
 pip install -r requirements.txt
 
-# 4. Launch the Streamlit application
+# 4. Download the trained models from Hugging Face Hub into sentiment_models/
+python download_models.py
+
+# 5. Launch the Streamlit application
 streamlit run app.py
 ```
 
