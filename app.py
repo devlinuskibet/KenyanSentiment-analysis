@@ -675,3 +675,84 @@ def render_batch_tab(
         use_container_width=True,
     )
 
+    # Slice analysis for each user-selected categorical column.
+    active_slice_cols = [c for c in slice_cols if c in eval_df.columns]
+    if active_slice_cols:
+        st.markdown("**Slice analysis**")
+        st.caption("Groups with fewer than 5 rows are skipped because small-sample metrics are unreliable.")
+        for s_col in active_slice_cols:
+            slice_df, skipped = compute_slice_analysis(eval_df, s_col, labels=LABELS, min_rows=5)
+            st.markdown(f"Slice: `{s_col}`")
+            if not slice_df.empty:
+                st.dataframe(
+                    slice_df.style.format({"accuracy": "{:.4f}", "macro_f1": "{:.4f}"}),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+            else:
+                st.info(f"No groups in `{s_col}` have at least 5 rows.")
+            if skipped:
+                skipped_str = ", ".join(f"{item['value']} (n={item['n']})" for item in skipped)
+                st.caption(f"Skipped unreliable small groups (<5 rows): {skipped_str}")
+
+    # Misclassified rows table with filter.
+    st.markdown("**Misclassified rows**")
+    err_filter = st.radio(
+        "Error filter",
+        options=["All errors", "Unflagged errors only"],
+        horizontal=True,
+        key="error_table_filter",
+    )
+    errors_df = eval_df.loc[eval_df["expected"] != eval_df["predicted"]].copy()
+    if err_filter == "Unflagged errors only":
+        errors_df = errors_df.loc[~errors_df["needs_review"]]
+
+    error_cols = [
+        "inquiry",
+        "context",
+        "expected",
+        "predicted",
+        "model_used",
+        "t_conf",
+        "needs_review",
+        "review_reason",
+        "prob_negative",
+        "prob_neutral",
+        "prob_positive",
+        "prob_mixed",
+    ]
+    if errors_df.empty:
+        st.info("No misclassified rows match the selected filter.")
+    else:
+        st.dataframe(errors_df[error_cols], use_container_width=True)
+
+    # Export buttons for full results CSV and summary metrics CSV.
+    dl_col1, dl_col2 = st.columns(2)
+    full_csv = eval_df.to_csv(index=False).encode("utf-8")
+    dl_col1.download_button(
+        "Download full results CSV",
+        data=full_csv,
+        file_name="sentiment_batch_results.csv",
+        mime="text/csv",
+    )
+
+    summary_rows = [
+        {"metric": "accuracy", "value": cls_metrics["accuracy"]},
+        {"metric": "macro_f1", "value": cls_metrics["macro_f1"]},
+        {"metric": "weighted_f1", "value": cls_metrics["weighted_f1"]},
+        {"metric": "review_rate", "value": rt_metrics["review_rate"]},
+        {"metric": "review_count", "value": rt_metrics["review_count"]},
+        {"metric": "accuracy_not_flagged", "value": rt_metrics["accuracy_not_flagged"]},
+        {"metric": "accuracy_flagged", "value": rt_metrics["accuracy_flagged"]},
+        {"metric": "unflagged_errors_count", "value": rt_metrics["unflagged_errors_count"]},
+        {"metric": "total_rows", "value": rt_metrics["total_rows"]},
+    ]
+    summary_csv = pd.DataFrame(summary_rows).to_csv(index=False).encode("utf-8")
+    dl_col2.download_button(
+        "Download summary metrics CSV",
+        data=summary_csv,
+        file_name="sentiment_summary_metrics.csv",
+        mime="text/csv",
+    )
+
+
