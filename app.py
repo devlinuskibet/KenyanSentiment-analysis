@@ -649,3 +649,29 @@ def render_batch_tab(
     else:
         st.success("Unflagged errors: 0")
 
+    # Per-class metrics table and row-normalized confusion matrix side by side.
+    left_col, right_col = st.columns(2)
+    with left_col:
+        st.markdown("**Per-class metrics**")
+        per_class_display = cls_metrics["per_class_df"].copy()
+        st.dataframe(
+            per_class_display.style.format(
+                {"precision": "{:.4f}", "recall": "{:.4f}", "f1": "{:.4f}"}
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+    with right_col:
+        cm_fig = render_confusion_matrix(cls_metrics["confusion_matrix_pct"])
+        st.pyplot(cm_fig, use_container_width=True)
+        plt.close(cm_fig)
+
+    # Side-by-side comparison table.
+    st.markdown("**System comparison**")
+    comp_df = compute_comparison_table(eval_df, labels=LABELS)
+    st.dataframe(
+        comp_df.style.format({"accuracy": "{:.4f}", "macro_f1": "{:.4f}"}, na_rep="N/A"),
+        hide_index=True,
+        use_container_width=True,
+    )
+
