@@ -200,3 +200,67 @@ def load_models(
     )
 
 
+def predict_transformer_batch(
+    inquiries: list[str],
+    models: SentimentModels,
+    progress_callback: Optional[Callable[[float], None]] = None,
+) -> tuple[np.ndarray, list[str], list[float]]:
+    """
+    Run batched transformer inference on inquiry texts only.
+
+    Args:
+        inquiries: List of customer inquiry strings.
+        models: Loaded SentimentModels container.
+        progress_callback: Optional callback receiving progress fraction in [0.0, 1.0].
+
+    Returns:
+        Tuple of:
+            - probabilities array of shape (N, 4)
+            - predicted label strings of length N
+            - confidence scores (max probability) of length N
+    """
+    # Clean all inquiry strings so NaN/None values never break tokenization.
+    cleaned = [clean_text(text) for text in inquiries]
+    total = len(cleaned)
+
+    # Handle empty input gracefully.
+    if total == 0:
+        return np.empty((0, len(LABELS)), dtype=np.float32), [], []
+
+    prob_batches: list[np.ndarray] = []
+
+    # Process inputs in fixed-size batches with no gradient tracking.
+    with torch.no_grad():
+        for start in range(0, total, BATCH_SIZE):
+            end = min(start + BATCH_SIZE, total)
+            batch_texts = cleaned[start:end]
+
+            # Tokenize with fixed truncation length and dynamic batch padding.
+            encoded = models.tokenizer(
+                batch_texts,
+                padding=True,
+                truncation=True,
+                max_length=MAX_LENGTH,
+                return_tensors="pt",
+            )
+            # Move input tensors to the same device as the transformer model.
+            encoded = {key: tensor.to(models.device) for key, tensor in encoded.items()}
+
+            # Forward pass and softmax normalization over class logits.
+            outputs = models.transformer_model(**encoded)
+            probs = torch.softmax(outputs.logits, dim=-1).detach().cpu().numpy()
+            prob_batches.append(probs)
+
+            # Report batch progress to the UI if a callback was provided.
+            if progress_callback is not None:
+                progress_callback(end / total)
+
+    # Concatenate all batch probability matrices into shape (N, 4).
+    all_probs = np.vstack(prob_batches)
+    pred_indices = np.argmax(all_probs, axis=1)
+    t_labels = [LABELS[int(idx)] for idx in pred_indices]
+    t_confs = [float(all_probs[row_idx, int(col_idx)]) for row_idx, col_idx in enumerate(pred_indices)]
+
+    return all_probs, t_labels, t_confs
+
+
