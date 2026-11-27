@@ -756,3 +756,75 @@ def render_batch_tab(
     )
 
 
+def render_robustness_tab() -> None:
+    """Render Tab 3 for context perturbation and disagreement-guard sweep analysis."""
+    st.subheader("Context Robustness Test")
+
+    batch_cache = st.session_state.get("batch_cache")
+    if batch_cache is None:
+        st.info("Run a batch evaluation in Tab 2 first to populate context robustness metrics.")
+        return
+
+    rob_cache = batch_cache.get("robustness_cache")
+    if rob_cache is None or len(rob_cache["y_true"]) == 0:
+        st.info("No rows in the current batch have non-empty conversation context.")
+        return
+
+    # Compute robustness across true, neutral, and shuffled contexts.
+    rob_df = compute_context_robustness(
+        y_true=rob_cache["y_true"],
+        preds_true_ctx=rob_cache["linear_true"],
+        preds_neutral_ctx=rob_cache["linear_neutral"],
+        preds_shuffled_ctx=rob_cache["linear_shuffled"],
+        preds_transformer=rob_cache["t_labels"],
+        labels=LABELS,
+    )
+
+    st.dataframe(
+        rob_df.style.format({"accuracy": "{:.4f}", "macro_f1": "{:.4f}"}),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    rob_fig = render_robustness_chart(rob_df)
+    st.pyplot(rob_fig, use_container_width=False)
+    plt.close(rob_fig)
+
+    st.caption(
+        "A large fall under shuffled context means the linear model depends on the conversation history being correct."
+    )
+
+    # Disagreement guard sweep across [0.0, 0.5, 0.7, 0.9].
+    st.markdown("**Disagreement guard sweep**")
+    sweep_df = compute_disagreement_guard_sweep(
+        y_true=rob_cache["y_true"],
+        linear_true_preds=rob_cache["linear_true"],
+        linear_shuffled_preds=rob_cache["linear_shuffled"],
+        t_labels=rob_cache["t_labels"],
+        t_confs=rob_cache["t_confs"],
+        thresholds=(0.0, 0.5, 0.7, 0.9),
+    )
+
+    sweep_display = sweep_df.copy()
+    sweep_display["wrong_caught_fmt"] = sweep_display.apply(
+        lambda r: f"{int(r['wrong_caught'])}/{int(r['wrong_total'])} ({r['wrong_caught_share'] * 100:.1f}%)",
+        axis=1,
+    )
+    sweep_display["needless_flags_fmt"] = sweep_display.apply(
+        lambda r: f"{int(r['needless_flags'])}/{int(r['correct_total'])} ({r['needless_flags_share'] * 100:.1f}%)",
+        axis=1,
+    )
+    st.dataframe(
+        sweep_display[["threshold", "context_condition", "wrong_caught_fmt", "needless_flags_fmt"]].rename(
+            columns={
+                "threshold": "guard_thr",
+                "context_condition": "Context",
+                "wrong_caught_fmt": "Wrong linear predictions caught",
+                "needless_flags_fmt": "Correct linear predictions flagged needlessly",
+            }
+        ),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+
